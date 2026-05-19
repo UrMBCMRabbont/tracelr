@@ -1247,6 +1247,7 @@ impl App {
                 });
             if self.active_arm_index != prev_arm {
                 self.trajectory_cache = crate::trajectory::TrajectoryCache::new(100);
+                self.scatter_points.clear();
                 if let Some(ds) = &self.dataset {
                     if let Some(arm) = self.arms.get(self.active_arm_index) {
                         crate::trajectory::save_arm_preference(&ds.root, &arm.name);
@@ -1256,6 +1257,18 @@ impl App {
                 }
             }
             ui.add_space(4.0);
+        }
+
+        // 3D / Scatter mode toggle
+        ui.horizontal(|ui| {
+            ui.selectable_value(&mut self.scatter_mode, false, "3D");
+            ui.selectable_value(&mut self.scatter_mode, true, "Scatter");
+        });
+        ui.add_space(4.0);
+
+        if self.scatter_mode {
+            self.show_scatter_view(ui);
+            return;
         }
 
         let ds = match &self.dataset {
@@ -1371,6 +1384,56 @@ impl App {
             &mut self.orbit_camera,
             accent,
         );
+    }
+
+    fn show_scatter_view(&mut self, ui: &mut egui::Ui) {
+        // Compute on first open. Synchronous, blocks the UI for one frame —
+        // acceptable for tracelr's typical dataset sizes; cache is reused on toggle.
+        if self.scatter_points.is_empty() {
+            let points = {
+                let ds = match &self.dataset {
+                    Some(ds) => ds,
+                    None => return,
+                };
+                let arm_idx = self.active_arm_index.min(self.arms.len().saturating_sub(1));
+                let arm = match self.arms.get(arm_idx) {
+                    Some(a) => a,
+                    None => return,
+                };
+                let kin = &arm.kinematics;
+                let pos_indices = &arm.pos_indices;
+                let is_v3 = ds.info.codebase_version.starts_with("v3");
+
+                let mut points = Vec::with_capacity(ds.episodes.len());
+                for ep in &ds.episodes {
+                    let ep_idx = ep.episode_index;
+                    let parquet_path = trajectory::episode_data_path(
+                        &ds.root,
+                        ep_idx,
+                        ds.info.chunks_size,
+                        &ds.info.codebase_version,
+                        ep.data_chunk_index,
+                        ep.data_file_index,
+                    );
+                    let filter_ep = if is_v3 { Some(ep_idx) } else { None };
+                    match trajectory::load_episode_states(&parquet_path, filter_ep) {
+                        Ok(states) => {
+                            let traj = kin.compute_trajectory(&states, pos_indices);
+                            if let Some(p) = crate::scatter_plot::compute_furthest_reach(&traj, ep_idx) {
+                                points.push(p);
+                            }
+                        }
+                        Err(e) => log::warn!("scatter: ep {}: {}", ep_idx, e),
+                    }
+                }
+                log::info!("Scatter computed for {} / {} episodes", points.len(), ds.episodes.len());
+                points
+            };
+            self.scatter_points = points;
+        }
+
+        let accent = self.theme.accent;
+        crate::scatter_plot::show_scatter_plot(ui, &self.scatter_points, accent);
     }
 
     fn show_urdf_missing_panel(&mut self, ui: &mut egui::Ui, robot_type_opt: Option<&str>) {

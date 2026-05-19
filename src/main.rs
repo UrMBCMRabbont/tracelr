@@ -27,6 +27,7 @@ mod dataset;
 mod grid;
 mod perf;
 mod playback;
+mod scatter_plot;
 mod theme;
 mod trajectory;
 mod trajectory_view;

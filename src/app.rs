@@ -11,6 +11,7 @@ use crate::dataset::LeRobotDataset;
 use crate::grid::GridView;
 use crate::perf::PerfTracker;
 use crate::theme::UiTheme;
+use crate::scatter_plot::FurthestReachPoint;
 use crate::trajectory::{ArmKinematics, RobotKinematics, TrajectoryCache};
 use crate::trajectory_view::OrbitCamera;
 
@@ -102,6 +103,11 @@ pub struct App {
     pub(crate) trajectory_cache: TrajectoryCache,
     pub(crate) orbit_camera: OrbitCamera,
     pub(crate) show_trajectory: bool,
+    /// When true, the trajectory panel renders the 2D scatter of per-episode
+    /// furthest reach instead of the 3D orbit overlay.
+    pub(crate) scatter_mode: bool,
+    /// Cached per-episode furthest reach points (lazy: empty until scatter mode opens).
+    pub(crate) scatter_points: Vec<FurthestReachPoint>,
     /// CLI override for URDF path.
     pub(crate) urdf_override: Option<PathBuf>,
 
@@ -167,6 +173,8 @@ impl App {
             trajectory_cache: TrajectoryCache::new(100),
             orbit_camera: OrbitCamera::default(),
             show_trajectory: true,
+            scatter_mode: false,
+            scatter_points: Vec::new(),
             urdf_override,
             pending_camera_switch: None,
             pending_multi_camera_rebuild: false,
@@ -206,6 +214,7 @@ impl App {
 
                 // Try to load robot kinematics for EE trajectory visualization
                 self.trajectory_cache = TrajectoryCache::new(100);
+                self.scatter_points.clear();
                 self.active_arm_index = 0;
 
                 if let Some(urdf_path) = self.urdf_override.clone().filter(|p| p.is_file()) {
